@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Verlet Physics Simulation</title>
+  <style>
+    body {
+      margin: 0;
+      overflow: hidden;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      background-color: #f0f0f0;
+      font-family: Arial, sans-serif;
+    }
+    canvas {
+      background-color: #fff;
+      box-shadow: 0 0 10px rgba(0, 0, 0, 0.2);
+      cursor: pointer;
+    }
+    .controls {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      background-color: rgba(255, 255, 255, 0.8);
+      padding: 10px;
+      border-radius: 5px;
+      box-shadow: 0 0 5px rgba(0, 0, 0, 0.2);
+    }
+    .instructions {
+      position: absolute;
+      bottom: 10px;
+      left: 10px;
+      background-color: rgba(255, 255, 255, 0.8);
+      padding: 10px;
+      border-radius: 5px;
+      box-shadow: 0 0 5px rgba(0, 0, 0, 0.2);
+      font-size: 14px;
+    }
+    button {
+      padding: 5px 10px;
+      margin: 5px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <div class="controls">
+    <button id="resetBtn">Reset Simulation</button>
+    <button id="gravityBtn">Toggle Gravity</button>
+  </div>
+  <div class="instructions">
+    <p><strong>Mouse Controls:</strong> Left-click to attract balls | Right-click to repel balls</p>
+  </div>
+  <canvas id="canvas"></canvas>
+
+  <script>
+    // Canvas setup
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const width = 600;
+    const height = 600;
+    canvas.width = width;
+    canvas.height = height;
+
+    // Physics parameters
+    const BALLS_COUNT = 1200;
+    const MIN_RADIUS = 5;
+    const MAX_RADIUS = 6;
+    const CONSTRAINT_ITERATIONS = 8;
+    const BOUNCE = 0.9;
+	const FRICTION = 0.99
+    let gravity = 0.2;
+    let running = true;
+    
+    // Mouse interaction parameters
+    let mouseX = 0;
+    let mouseY = 0;
+    let leftMouseDown = false;
+    let rightMouseDown = false;
+    const ATTRACTION_STRENGTH = 2.0;  // Increased for more noticeable effect
+    const REPULSION_STRENGTH = 2.5;   // Increased for more noticeable effect
+    const INTERACTION_RADIUS = 150;
+
+    // Create array of balls
+    let balls = [];
+
+    class Ball {
+      constructor(x, y, radius) {
+        this.x = x;
+        this.y = y;
+        this.oldX = x - (Math.random() * 6 - 3);
+        this.oldY = y - (Math.random() * 6 - 3);
+        this.radius = radius;
+        this.mass = radius * radius;
+        this.color = `hsl(${Math.floor(Math.random() * 3)}, 70%, 50%)`;
+      }
+
+      update() {
+        if (!running) return;
+        
+        // Calculate velocity from current and old position
+        const velocityX = (this.x - this.oldX) * FRICTION;
+        const velocityY = (this.y - this.oldY) * FRICTION;
+        
+        // Save current position as old position
+        this.oldX = this.x;
+        this.oldY = this.y;
+        
+        // Apply gravity and update position with velocity
+        this.x += velocityX;
+        this.y += velocityY + gravity;
+      }
+
+      applyForce(forceX, forceY) {
+        this.x += forceX;
+        this.y += forceY;
+      }
+
+      draw() {
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+        ctx.fillStyle = this.color;
+        ctx.fill();
+      }
+
+      constrainToBounds() {
+        // Constrain to canvas bounds with bounce effect
+        if (this.x < this.radius) {
+          this.x = this.radius;
+          this.oldX = this.x + (this.x - this.oldX) * BOUNCE;
+        } else if (this.x > width - this.radius) {
+          this.x = width - this.radius;
+          this.oldX = this.x + (this.x - this.oldX) * BOUNCE;
+        }
+        
+        if (this.y < this.radius) {
+          this.y = this.radius;
+          this.oldY = this.y + (this.y - this.oldY) * BOUNCE;
+        } else if (this.y > height - this.radius) {
+          this.y = height - this.radius;
+          this.oldY = this.y + (this.y - this.oldY) * BOUNCE;
+        }
+      }
+    }
+
+    function initialize() {
+      balls = [];
+      // Create balls with random positions
+      for (let i = 0; i < BALLS_COUNT; i++) {
+        const radius = MIN_RADIUS + Math.random() * (MAX_RADIUS - MIN_RADIUS);
+        const x = radius + Math.random() * (width - radius * 2);
+        const y = radius + Math.random() * (height - radius * 2);
+        
+        // Check for overlap with existing balls
+        let overlap = false;
+        for (let j = 0; j < balls.length; j++) {
+          const dx = x - balls[j].x;
+          const dy = y - balls[j].y;
+          const distance = Math.sqrt(dx * dx + dy * dy);
+          if (distance < radius + balls[j].radius) {
+            overlap = true;
+            break;
+          }
+        }
+        
+        // If no overlap, add the ball
+        if (!overlap) {
+          balls.push(new Ball(x, y, radius));
+        } else {
+          // Try again
+          i--;
+        }
+      }
+    }
+
+    function resolveCollisions() {
+      // Solve collisions between balls
+      for (let i = 0; i < balls.length; i++) {
+        const ball1 = balls[i];
+        
+        for (let j = i + 1; j < balls.length; j++) {
+          const ball2 = balls[j];
+          
+          const dx = ball2.x - ball1.x;
+          const dy = ball2.y - ball1.y;
+          const distance = Math.sqrt(dx * dx + dy * dy);
+          const minDistance = ball1.radius + ball2.radius;
+          
+          if (distance < minDistance) {
+            const angle = Math.atan2(dy, dx);
+            const targetX = ball1.x + Math.cos(angle) * minDistance;
+            const targetY = ball1.y + Math.sin(angle) * minDistance;
+            const ax = (targetX - ball2.x) * 0.5;
+            const ay = (targetY - ball2.y) * 0.5;
+            
+            // Adjust positions based on mass (larger balls move less)
+            const m1 = ball1.mass / (ball1.mass + ball2.mass);
+            const m2 = ball2.mass / (ball1.mass + ball2.mass);
+            
+            ball1.x -= ax * m2;
+            ball1.y -= ay * m2;
+            ball2.x += ax * m1;
+            ball2.y += ay * m1;
+          }
+        }
+      }
+    }
+
+    function applyMouseForces() {
+      if (!leftMouseDown && !rightMouseDown) return;
+      
+      for (const ball of balls) {
+        const dx = mouseX - ball.x;
+        const dy = mouseY - ball.y;
+        const distSq = dx * dx + dy * dy;
+        const distance = Math.sqrt(distSq);
+        
+        if (distance < INTERACTION_RADIUS) {
+          // Calculate normalized direction vector
+          const dirX = dx / distance;
+          const dirY = dy / distance;
+          
+          // Force is stronger when closer (inverse square law)
+          const forceFactor = 1 - (distance / INTERACTION_RADIUS);
+          const force = forceFactor * forceFactor * 1.5;
+          
+          // Inverse mass factor (heavier balls move less)
+          const massFactor = MIN_RADIUS / ball.radius;
+          
+          if (leftMouseDown) {
+            // Attract towards mouse
+            ball.applyForce(
+              dirX * force * ATTRACTION_STRENGTH * massFactor,
+              dirY * force * ATTRACTION_STRENGTH * massFactor
+            );
+          } else if (rightMouseDown) {
+            // Repel from mouse
+            ball.applyForce(
+              -dirX * force * REPULSION_STRENGTH * massFactor,
+              -dirY * force * REPULSION_STRENGTH * massFactor
+            );
+          }
+        }
+      }
+    }
+
+    function update() {
+      // Clear canvas
+      ctx.clearRect(0, 0, width, height);
+      
+      // Draw container
+      ctx.strokeStyle = '#333';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(0, 0, width, height);
+      
+      // Draw mouse interaction radius when mouse is down
+      if (leftMouseDown || rightMouseDown) {
+        ctx.beginPath();
+        ctx.arc(mouseX, mouseY, INTERACTION_RADIUS, 0, Math.PI * 2);
+        if (leftMouseDown) {
+          ctx.strokeStyle = 'rgba(0, 200, 0, 0.4)';
+          ctx.fillStyle = 'rgba(0, 200, 0, 0.1)';
+        } else {
+          ctx.strokeStyle = 'rgba(200, 0, 0, 0.4)';
+          ctx.fillStyle = 'rgba(200, 0, 0, 0.1)';
+        }
+        ctx.fill();
+        ctx.stroke();
+      }
+      
+      // Apply mouse forces
+      applyMouseForces();
+      
+      // Update ball positions using Verlet integration
+      for (const ball of balls) {
+        ball.update();
+      }
+      
+      // Run multiple constraint resolution iterations for stability
+      for (let i = 0; i < CONSTRAINT_ITERATIONS; i++) {
+        // Constrain balls to canvas bounds
+        for (const ball of balls) {
+          ball.constrainToBounds();
+        }
+        
+        // Resolve collisions between balls
+        resolveCollisions();
+      }
+      
+      // Draw balls
+      for (const ball of balls) {
+        ball.draw();
+      }
+      
+      // Continue animation loop
+      requestAnimationFrame(update);
+    }
+
+    // Event listeners for controls
+    document.getElementById('resetBtn').addEventListener('click', initialize);
+    document.getElementById('gravityBtn').addEventListener('click', () => {
+      gravity = gravity > 0 ? 0 : 0.2;
+    });
+    
+    // Mouse event listeners
+    canvas.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      const rect = canvas.getBoundingClientRect();
+      mouseX = e.clientX - rect.left;
+      mouseY = e.clientY - rect.top;
+      
+      if (e.button === 0) {
+        leftMouseDown = true;
+        rightMouseDown = false;
+      } else if (e.button === 2) {
+        rightMouseDown = true;
+        leftMouseDown = false;
+      }
+    });
+    
+    canvas.addEventListener('mousemove', (e) => {
+      const rect = canvas.getBoundingClientRect();
+      mouseX = e.clientX - rect.left;
+      mouseY = e.clientY - rect.top;
+    });
+    
+    document.addEventListener('mouseup', (e) => {
+      if (e.button === 0) {
+        leftMouseDown = false;
+      } else if (e.button === 2) {
+        rightMouseDown = false;
+      }
+    });
+    
+    // Prevent context menu on right-click
+    canvas.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      return false;
+    });
+    
+    // Initialize and start the animation
+    initialize();
+    update();
+  </script>
+</body>
+</html>
